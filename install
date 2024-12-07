@@ -1,0 +1,84 @@
+!sudo apt-get update && sudo apt-get install -y \
+    build-essential \
+    libncurses5-dev \
+    libncursesw5-dev \
+    libssl-dev \
+    libwxgtk3.0-gtk3-dev \
+    libwxbase3.0-dev \
+    libxslt-dev \
+    libxml2-dev \
+    unixodbc-dev \
+    libreadline-dev \
+    libcurl4-openssl-dev \
+    autoconf \
+    git \
+    openjdk-11-jdk
+
+!git clone https://github.com/erlang/otp.git
+!cd otp && git checkout master
+!cd otp && ./otp_build autoconf
+!cd otp && ./configure --without-javac --enable-smp-support --enable-threads --enable-kernel-poll --enable-dirty-schedulers
+!cd otp && make -j$(nproc)
+!cd otp && sudo make install
+
+!wget https://s3.amazonaws.com/rebar3/rebar3
+!chmod +x rebar3
+!sudo mv rebar3 /usr/local/bin/
+
+!mkdir -p ~/erlang_cowboy_project2
+%cd ~/erlang_cowboy_project2
+
+with open("hello_server.erl", "w") as f:
+    f.write("""
+%% File: hello_server.erl
+-module(hello_server).
+-export([start/0, stop/0]).
+
+-define(PORT, 8080).
+
+start() ->
+    {ok, _} = cowboy:start_http(http_listener, 100,
+                                 [{port, ?PORT}],
+                                 #{env => #{dispatch => cowboy_router:compile([{"/", hello_handler, []}])}}),
+    io:format("Server started at http://localhost:~p~n", [?PORT]),
+    ok.
+
+stop() ->
+    cowboy:stop_listener(http_listener),
+    io:format("Server stopped~n").
+
+%% HTTP handler
+-module(hello_handler).
+-behavior(cowboy_http_handler).
+-export([init/2, handle/2, terminate/3]).
+
+init(_Req, State) ->
+    {ok, State}.
+
+handle(Req, State) ->
+    {ok, Req2} = cowboy_req:reply(200,
+                                   #{ "content-type" => "text/plain" },
+                                   "hello there",
+                                   Req),
+    {ok, Req2, State}.
+
+terminate(_Reason, _Req, _State) ->
+    ok.
+""")
+
+# Create a rebar.config file to ensure the correct dependencies
+with open("rebar.config", "w") as f:
+    f.write("""
+{deps, [
+    {cowboy, "2.12.0"},
+    {cowlib, "2.12.1"}
+]}.
+""")
+
+!rebar3 get-deps
+
+!rebar3 compile -v
+
+!ls -l _build/default/lib/
+
+!erl -noshell -pa _build/default/lib -s hello_server start -s init stop
