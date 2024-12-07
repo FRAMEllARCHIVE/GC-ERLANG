@@ -1,0 +1,103 @@
+!sudo apt-get update && sudo apt-get install -y \
+    build-essential \
+    libncurses5-dev \
+    libncursesw5-dev \
+    libssl-dev \
+    libwxgtk3.0-gtk3-dev \
+    libwxbase3.0-dev \
+    libxslt-dev \
+    libxml2-dev \
+    unixodbc-dev \
+    libreadline-dev \
+    libcurl4-openssl-dev \
+    autoconf \
+    git \
+    openjdk-11-jdk
+
+!git clone https://github.com/erlang/otp.git
+!cd otp && git checkout master
+!cd otp && ./otp_build autoconf
+!cd otp && ./configure --without-javac --enable-smp-support --enable-threads --enable-kernel-poll --enable-dirty-schedulers
+!cd otp && make -j$(nproc)
+!cd otp && sudo make install
+
+!wget https://s3.amazonaws.com/rebar3/rebar3
+!chmod +x rebar3
+!sudo mv rebar3 /usr/local/bin/
+
+!mkdir -p ~/erlang_project
+%cd ~/erlang_project
+
+!rebar3 new app erlangapi
+
+%cd ~/erlang_project/erlangapi/src/
+
+with open("erlangapi.app.src", "w") as f:
+    f.write("""
+{application, erlangapi, [
+    {description, "An OTP application"},
+    {vsn, "0.1.0"},
+    {registered, []},
+    {mod, {erlangapi_app, []}},
+    {applications, [
+        kernel,
+        stdlib,
+        cowboy
+    ]},
+    {env, []},
+    {modules, []},
+    {licenses, ["Apache-2.0"]},
+    {links, []}
+ ]}.
+
+""")
+
+
+with open("erlangapi_app.erl", "w") as f:
+    f.write("""
+%% File: src/erlangapi_app.erl
+-module(erlangapi_app).
+-behavior(application).
+
+-export([start/2, stop/1]).
+
+start(_StartType, _StartArgs) ->
+    %% Start HTTP server using Cowboy
+    {ok, _} = start_http_server(),
+    {ok, self()}.
+
+stop(_State) ->
+    %% Stop HTTP server gracefully
+    stop_http_server(),
+    ok.
+
+%% Start the HTTP server
+start_http_server() ->
+    Dispatch = cowboy_router:compile([
+        {"/", http_handler, []}
+    ]),
+    {ok, _} = cowboy:start_http(http_listener, 100,
+                                  [{port, 8080}],
+                                  #{env => #{dispatch => Dispatch}}),
+    io:format("HTTP server running on http://localhost:8080~n"),
+    ok.
+
+%% Stop the HTTP server
+stop_http_server() ->
+    cowboy:stop_listener(http_listener),
+    io:format("HTTP server stopped~n").
+
+""")
+
+%cd ~/erlang_project/erlangapi
+
+with open("rebar.config", "w") as f:
+    f.write("""
+{deps, [
+    {cowboy, "2.12.0"}
+]}.
+""")
+
+!rebar3 get-deps
+!rebar3 compile -v
+
